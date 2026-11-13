@@ -1,0 +1,23 @@
+{
+  "name": "doubao-work-gateway",
+  "private": true,
+  "type": "module",
+  "description": "豆包工作专用本机账号、签到与 API 管理台",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "zsh ./start.command",
+    "test": "node --test test/*.test.mjs",
+    "check": "node --check server.mjs && node --check core.mjs && node --check keys.mjs && node --check browser-login.mjs && node --check public/ui.js && node --check public/view.mjs"
+  },
+  "version": "0.1.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/245678000000/doubao-work-gateway.git"
+  },
+  "bugs": {
+    "url": "https://github.com/245678000000/doubao-work-gateway/issues"
+  },
+  "homepage": "https://github.com/245678000000/doubao-work-gateway#readme"
+}
