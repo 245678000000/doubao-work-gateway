@@ -2,20 +2,20 @@
   "name": "doubao-work-gateway",
   "private": true,
   "type": "module",
-  "description": "豆包工作专用账号、签到、JSON 备份与接口配置管理台",
+  "description": "豆包工作独立账号与 API 网关",
   "engines": {
     "node": ">=22"
   },
   "scripts": {
     "start": "node launcher.mjs start",
     "test": "node --test test/*.test.mjs",
-    "check": "node --check server.mjs && node --check core.mjs && node --check keys.mjs && node --check ingress.mjs && node --check cloud-sync.mjs && node --check sync-to-cloud.mjs && node --check browser-login.mjs && node --check public/ui.js && node --check public/view.mjs && node --check transfers.mjs && node --check nodes.mjs && node --check public/manage.js && node --check launcher.mjs && node --check platform.mjs && node --check private-files.mjs && node --check init-model-key.mjs",
+    "check": "node scripts/check.mjs",
     "stop": "node launcher.mjs stop",
     "status": "node launcher.mjs status",
     "doctor": "node launcher.mjs doctor",
     "secure-cloud": "node launcher.mjs secure-cloud"
   },
-  "version": "0.3.0",
+  "version": "0.4.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/245678000000/doubao-work-gateway.git"

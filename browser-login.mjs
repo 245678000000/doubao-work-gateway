@@ -9,7 +9,7 @@ import {browserCandidates} from './platform.mjs';
 import {ensurePrivateDir,securePrivate} from './private-files.mjs';
 
 const LOGIN_URL='https://www.doubao.com/chat/';
-const ACTIVE=new Set(['starting','waiting','importing']);
+const ACTIVE=new Set(['starting','waiting','awaiting_confirmation','importing']);
 const failure=(status,message)=>Object.assign(new Error(message),{status});
 const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 
@@ -99,7 +99,7 @@ export async function launchIsolatedBrowser(browser,profile,{spawnProcess=spawn}
   try{
     await Promise.race([once(child,'spawn'),exit.then(()=>{throw Error('浏览器启动失败。');})]);
     await client.send('Browser.getVersion');
-  }catch{await dispose();throw failure(503,'浏览器启动失败，请检查 Chrome / Edge 安装，或使用备用窗口。');}
+  }catch{await dispose();throw failure(503,'浏览器启动失败，请检查 Chrome / Edge 安装，或在工作台导入账号 JSON。');}
   return {
     async cookies(){
       const {targetInfos=[]}=await client.send('Target.getTargets');
@@ -130,7 +130,7 @@ export class BrowserLogin {
   update(session,state,message,extra={}){if(this.current===session)this.state={...this.state,state,message,...extra};}
   async start(browserId,context={}){
     if(this.disposed)throw failure(503,'登录服务正在停止。');
-    if(this.current){if((this.current.context.destination||'local')!==(context.destination||'local'))throw failure(409,'已有另一种保存目标的登录会话，请先完成或取消它。');return this.status();}
+    if(this.current){if((this.current.context.destination||'local')!==(context.destination||'local')||this.current.context.expectedId!==context.expectedId||!!this.current.context.manual!==!!context.manual)throw failure(409,'已有另一种保存目标的登录会话，请先完成或取消它。');return this.status();}
     const session={context,id:randomUUID(),cancelled:false,timer:null,handle:null,profile:null,finishing:null,busy:false,stable:'',ready:null};
     this.current=session;const startedAt=this.now();
     this.state={id:session.id,destination:context.destination||'local',state:'starting',message:'正在准备独立浏览器会话…',browserName:'',startedAt,expiresAt:startedAt+this.ttlMs};
@@ -173,6 +173,10 @@ export class BrowserLogin {
       if(!cookies.length){session.stable='';this.schedule(session);return;}
       const fingerprint=createHash('sha256').update(cookies.filter(c=>['sessionid','sessionid_ss'].includes(c.name)).map(c=>c.name+'='+c.value).sort().join(';')).digest('hex');
       if(fingerprint!==session.stable){session.stable=fingerprint;this.schedule(session);return;}
+      if(session.context.manual&&session.confirmed!==fingerprint){
+        this.update(session,'awaiting_confirmation','已检测到登录。请在窗口里完成官网验证，再回到面板确认接入。');
+        this.schedule(session);return;
+      }
       this.update(session,'importing','检测到豆包登录，正在核验账号并保存到本机…');
       // Exactly one import attempt. A timeout is uncertain, not a reason to retry silently.
       let result;
@@ -197,6 +201,13 @@ export class BrowserLogin {
       if(this.current===session)this.current=null;
     })();
     return session.finishing;
+  }
+  async confirm(id){
+    const session=this.current;
+    if(!session||id!==session.id||!session.context.manual||this.state.state!=='awaiting_confirmation'||!session.stable)
+      throw failure(409,'没有可确认的浏览器登录。');
+    session.confirmed=session.stable;if(session.busy)return this.status();clearTimeout(session.timer);
+    await this.inspect(session);return this.status();
   }
   async cancel({shutdown=false}={}){
     const session=this.current;if(!session)return this.status();

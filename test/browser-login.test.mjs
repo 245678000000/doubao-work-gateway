@@ -100,3 +100,15 @@ test('云端登录上下文传入接入回调，成功状态与失败状态均�
 test('进行中的浏览器会话固定保存目标，跨目标启动会明确提示',async()=>{
  const f=await setup();try{await f.login.start('chrome',{destination:'local'});assert.equal(f.login.status().destination,'local');await assert.rejects(f.login.start('chrome',{destination:'cloud'}),e=>e.status===409);assert.equal(f.login.status().destination,'local');}finally{await f.done();}
 });
+test('指定账号更新：检测到会话也保持窗口，明确确认后才接入',async()=>{
+ const f=await setup();
+ try{
+  const a=await f.login.start('chrome',{expectedId:'fixture',manual:true});
+  f.setCookies([cookie]);await f.inspect();await f.inspect();await f.inspect();
+  assert.equal(f.login.status().state,'awaiting_confirmation');
+  assert.equal(f.imports,0);assert.equal(f.closes,0);
+  await assert.rejects(f.login.confirm('wrong-session'),e=>e.status===409);
+  const result=await f.login.confirm(a.id);
+  assert.equal(result.state,'success');assert.equal(f.imports,1);assert.equal(f.closes,1);
+ }finally{await f.done();}
+});

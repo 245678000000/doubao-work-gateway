@@ -3,13 +3,6 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 export const projectRoot=fileURLToPath(new URL('./',import.meta.url));
 const envValue=(env,key)=>env[key]??Object.entries(env).find(([k])=>k.toLowerCase()===key.toLowerCase())?.[1];
-export function coreCandidates(runtime,platform=process.platform){
- const p=platform==='win32'?path.win32:path.posix;
- if(platform==='darwin')return [p.join(runtime,'Agent2API.app','Contents','MacOS','agent2api'),p.join(runtime,'agent2api-server')];
- if(platform==='win32')return [p.join(runtime,'agent2api-server.exe')];
- if(platform==='linux')return [p.join(runtime,'agent2api-server')];
- throw Error('当前系统尚未列入支持范围。');
-}
 export function browserCandidates(platform,home,env={}){
  const p=platform==='win32'?path.win32:path.posix,rows=[];
  const add=(id,name,files)=>{for(const file of files)if(file&&p.isAbsolute(file)&&!rows.some(r=>r.path===file))rows.push({id,name,path:file});};
@@ -31,5 +24,5 @@ export async function resolveRuntime({project=projectRoot,env=process.env}={}){
  project=path.resolve(project);let root=env.DW_RUNTIME_ROOT;
  if(!root){try{root=(await readFile(path.join(project,'.runtime-root'),'utf8')).trim();if(!path.isAbsolute(root)||/[\r\n\0]/.test(root))throw Error('.runtime-root 需填写单行绝对路径。');}catch(e){if(e.code!=='ENOENT')throw e;}}
  root=path.resolve(root||path.join(project,'.local'));
- return {project,root,runtime:path.join(root,'runtime'),state:path.resolve(env.DW_STATE_DIR||path.join(root,'state')),tmp:path.join(root,'tmp')};
+ return {project,root,state:path.resolve(env.DW_STATE_DIR||path.join(root,'state')),tmp:path.join(root,'tmp')};
 }

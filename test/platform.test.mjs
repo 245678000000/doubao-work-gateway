@@ -3,11 +3,8 @@ import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,writeFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {resolveRuntime,coreCandidates,browserCandidates} from '../platform.mjs';
-test('跨平台候选路径：Mac 应用包、Windows server、Linux server 与独立浏览器',()=>{
- assert(coreCandidates('/runtime','darwin').some(p=>p.endsWith('Agent2API.app/Contents/MacOS/agent2api')));
- assert(coreCandidates('C:\\runtime','win32').includes('C:\\runtime\\agent2api-server.exe'));
- assert(coreCandidates('/runtime','linux').includes('/runtime/agent2api-server'));
+import {resolveRuntime,browserCandidates} from '../platform.mjs';
+test('跨平台候选路径：Windows、Linux 与 macOS 的独立浏览器',()=>{
  const win=browserCandidates('win32','C:\\Users\\Tester',{'PROGRAMFILES':'C:\\Program Files','LOCALAPPDATA':'C:\\Users\\Tester\\AppData\\Local'});
  assert(win.some(b=>b.id==='chrome'&&b.path==='C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'));
  assert(win.some(b=>b.id==='edge'&&b.path.endsWith('msedge.exe')));

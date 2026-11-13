@@ -30,3 +30,13 @@ main{min-width:0}header{height:72px;display:flex;align-items:center;justify-cont
 @media(max-width:600px){.page-heading{flex-direction:column;gap:17px}.heading-tools{max-width:none;width:100%;justify-content:flex-start}.heading-tools .primary{margin-left:auto}.page-heading h1{font-size:27px}.metrics{gap:15px 0;padding:15px 0}.metrics>div,.metrics>div:first-child,.metrics>div:last-child{padding:0 15px}.metrics>div:nth-child(3){border-left:0}.selection-actions{justify-content:flex-start;gap:7px}.filter-row{flex-wrap:wrap}.filter-tools{width:100%;justify-content:space-between}.account .badges{margin-left:0;width:100%;gap:5px}.account-top{column-gap:9px}.account-name{min-width:0}.account .quota{margin-top:13px}.account .account-options{width:auto;gap:14px;justify-content:flex-start}.account .account-bottom{align-items:flex-start}.node-current{flex-wrap:wrap;padding:18px;gap:13px}.node-current>button{margin-left:56px}.node-current code{font-size:10px}.node-row{flex-direction:column;padding:17px}.node-actions{align-self:flex-end}.json-explain{grid-template-columns:1fr;gap:21px}.preview-heading{align-items:flex-start;flex-direction:column}.node-title .badge{font-size:9px}.file-zone{padding:20px 12px}}
 
 @media(max-width:600px){.node-current>div{flex-basis:calc(100% - 56px)}.node-current>button{margin-top:0}}
+
+.verification-note{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:14px 0;padding:14px 16px;border:1px solid var(--border,#dbe4f2);border-radius:14px;background:var(--accent-soft,#edf3ff)}
+.verification-copy{min-width:0}
+.verification-copy strong{font-size:.91rem}
+.verification-copy p{margin:5px 0;font-size:.83rem;line-height:1.55}
+.verification-copy small{overflow-wrap:anywhere;font-family:ui-monospace,monospace;font-size:.68rem}
+.verification-actions{display:flex;flex:0 0 auto;flex-wrap:wrap;gap:7px}
+.verification-actions a{text-decoration:none}
+:root[data-theme=dark] .verification-note{background:#18263d;border-color:#2d4160}
+@media(max-width:700px){.verification-note{align-items:flex-start;flex-direction:column;gap:10px}}

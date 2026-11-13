@@ -1,0 +1,48 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtemp,readFile,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {createCipheriv,randomBytes} from 'node:crypto';
+import {DatabaseSync} from 'node:sqlite';
+import {ensurePrivateDir,securePrivate,writePrivate} from '../private-files.mjs';
+import {readLegacyAccounts} from '../native/migration.mjs';
+import {openStore} from '../native/store.mjs';
+import {createNativeServices} from '../native/services.mjs';
+
+test('离线迁移：解密复制库的 WAL，保持原库字节、计划与账号开关',async t=>{
+ const root=await mkdtemp(join(tmpdir(),'dw-migration-')),src=join(root,'source'),dst=join(root,'destination');
+ await ensurePrivateDir(src);
+ let db,store;
+ t.after(async()=>{db?.close();await store?.close();await rm(root,{recursive:true,force:true});});
+ const now=()=>Date.parse('2026-11-13T10:00:00+08:00');
+ const source=join(src,'agent2api.db'),wal=source+'-wal',key=randomBytes(32);
+ await writePrivate(join(src,'account.key'),key);
+ db=new DatabaseSync(source);
+ db.exec('PRAGMA journal_mode = WAL; PRAGMA wal_autocheckpoint = 0; CREATE TABLE accounts (id TEXT,provider TEXT,enabled INTEGER,data TEXT);');
+ const nonce=randomBytes(12),c=createCipheriv('aes-256-gcm',key,nonce);
+ const fixture={id:'fixture',provider:'doubaowork',name:'示例账号',desktop:false,checkinAt:now()-1000,
+  pluginSecret:{cookies:[{name:'sessionid',value:'FIXTURE_ONLY',domain:'.doubao.com',path:'/'}],deviceId:'fixture-device',email:'private@example.test'}};
+ const data='enc1:'+Buffer.concat([nonce,c.update(JSON.stringify(fixture),'utf8'),c.final(),c.getAuthTag()]).toString('base64');
+ db.prepare('INSERT INTO accounts VALUES (?,?,?,?)').run(fixture.id,fixture.provider,0,data);
+ await Promise.all([source,wal].map(x=>securePrivate(x)));
+ await writePrivate(join(src,'doubao-panel-settings.json'),JSON.stringify({enabled:true,time:'10:15',aliases:{fixture:'备注'},accounts:{fixture:true},attempted:{}}));
+ const before=await Promise.all([source,wal].map(x=>readFile(x)));
+ const rows=await readLegacyAccounts({dir:src,now});
+ assert.deepEqual(await Promise.all([source,wal].map(x=>readFile(x))),before);
+ assert.equal(rows.accounts.length,1);
+ assert.equal(rows.accounts[0].session.deviceId,'fixture-device');
+ assert(!JSON.stringify(rows).includes('private@example.test'));
+ store=await openStore({dir:dst});
+ const svc=await createNativeServices({store,client:{},now});
+ assert.equal((await svc.migrateLegacy(rows)).added,1);
+ assert.equal((await svc.migrateLegacy(rows)).skipped,1);
+ const state=svc.snapshot();
+ assert.deepEqual(state.scheduler,{enabled:true,time:'10:15'});
+ assert.equal(state.accounts[0].alias,'备注');
+ assert.equal(state.accounts[0].enabled,false);
+ assert.equal(state.accounts[0].auto,true);
+ assert.equal(state.accounts[0].checked,true);
+ assert.equal(state.accounts[0].state,'needs_login');
+ assert(!JSON.stringify(state).includes('FIXTURE_ONLY'));
+});

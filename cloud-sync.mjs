@@ -1,7 +1,7 @@
 import {readFile} from 'node:fs/promises';
 import {assertPrivate} from './private-files.mjs';
 const fail=(status,message)=>Object.assign(new Error(message),{status});
-export function createCloudSync({configPath,request,fetchImpl=fetch}){
+export function createCloudSync({configPath,request,exportAccounts,fetchImpl=fetch}){
  let busy=false;
  async function config(){
   try{
@@ -16,16 +16,16 @@ export function createCloudSync({configPath,request,fetchImpl=fetch}){
   async sync(ids){
    if(busy)throw fail(409,'已有账号正在同步，请稍后核对结果。');busy=true;
    try{
-    const target=await config(),data=await request('/api/accounts/export');
+    const target=await config(),data=exportAccounts?await exportAccounts(ids):await request('/api/accounts/export');
     const accounts=data?.accounts?.filter(a=>a.provider==='doubaowork'&&a.desktop!==true&&(!ids||ids.includes(a.id)));
     if(!accounts?.length||accounts.length>20||(ids&&accounts.length!==new Set(ids).size))throw fail(409,'未找到完整的豆包工作登录快照，请刷新本机账号。');
     let result;
     try{
-     const r=await fetchImpl(target.origin+'/api/accounts/import',{method:'POST',redirect:'error',signal:AbortSignal.timeout(40_000),headers:{'Content-Type':'application/json',Origin:target.origin,'X-Doubao-Panel':'1',Authorization:'Basic '+Buffer.from(target.user+':'+target.password).toString('base64')},body:JSON.stringify({version:2,accounts})});
+     const r=await fetchImpl(target.origin+'/api/accounts/import',{method:'POST',redirect:'error',signal:AbortSignal.timeout(40_000),headers:{'Content-Type':'application/json',Origin:target.origin,'X-Doubao-Panel':'1',Authorization:'Basic '+Buffer.from(target.user+':'+target.password).toString('base64')},body:JSON.stringify({...(data.schema?{schema:data.schema}:{}),version:data.version||2,accounts})});
      if(!r.ok)throw Error();result=await r.json();
-     if(result.failed!==0||result.skipped!==0||!Number.isInteger(result.added)||!Number.isInteger(result.updated)||result.added+result.updated!==accounts.length)throw Error();
+     if(result.failed!==0||![result.added,result.updated,result.skipped].every(n=>Number.isInteger(n)&&n>=0)||result.added+result.updated+result.skipped!==accounts.length)throw Error();
     }catch{throw fail(502,'云端同步结果待核对。账号已保存在本机，请先刷新云端列表；无需重复登录。');}
-    return {origin:target.origin,added:result.added,updated:result.updated};
+    return {origin:target.origin,added:result.added,updated:result.updated,...(result.skipped?{skipped:result.skipped}:{})};
    }finally{busy=false;}
   },
  };
