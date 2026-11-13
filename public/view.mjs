@@ -8,13 +8,13 @@ export function filterAccounts(accounts, query='', filter='all') {
 }
 export function summary(accounts) {
   return {total:accounts.length,ready:accounts.filter(isReady).length,signed:accounts.filter(a=>a.checked).length,
-    auto:accounts.filter(a=>a.auto&&a.enabled&&a.available).length,attention:accounts.filter(needsAttention).length};
+    auto:accounts.filter(a=>a.auto&&a.enabled&&a.available&&!a.retestPending).length,attention:accounts.filter(needsAttention).length};
 }
 export function scheduleLabel(scheduler, accounts, at=Date.now()) {
   if(!scheduler.enabled)return '自动签到未开启';
   if(!summary(accounts).auto)return '请先选择签到账号';
   const time=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Shanghai',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(at);
-  const pending=accounts.some(a=>a.auto&&a.enabled&&a.available&&!a.checked&&!a.attempt);
+  const pending=accounts.some(a=>a.auto&&a.enabled&&a.available&&!a.retestPending&&!a.checked&&!a.attempt);
   if(time>=scheduler.time&&pending)return '等待本轮检查';
   return (time<scheduler.time?'今天 ':'明天 ')+scheduler.time;
 }
@@ -26,3 +26,5 @@ export function curlExample(base, model) {
   const body=JSON.stringify({model,messages:[{role:'user',content:'请只回复 OK'}],stream:true});
   return `curl --no-buffer ${quote(base+'/chat/completions')} \\\n  -H "Authorization: Bearer $DOUBAO_API_KEY" \\\n  -H 'Content-Type: application/json' \\\n  -d ${quote(body)}`;
 }
+
+export function sortAccounts(accounts,order='default'){const list=[...accounts];if(order==='name')list.sort((a,b)=>a.name.localeCompare(b.name,'zh-CN'));else if(order==='ready')list.sort((a,b)=>Number(isReady(b))-Number(isReady(a)));else if(order==='attention')list.sort((a,b)=>Number(needsAttention(b))-Number(needsAttention(a)));return list;}

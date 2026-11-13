@@ -33,3 +33,7 @@ test('模型标题仅做显示转换，调用示例保留准确 ID 并转义 she
  assert(command.includes('stream":true'));assert(command.includes('curl --no-buffer'));
  assert(curlExample('http://127.0.0.1/v1',"unusual'id").includes("unusual'\\''id"));
 });
+test('账号排序不改变原列表，待处理与可用优先语义一致',async()=>{
+ const {sortAccounts}=await import('../public/view.mjs');const rows=[{id:'B',name:'乙',enabled:false,available:false},{id:'A',name:'甲',enabled:true,available:true,routable:true}];
+ assert.deepEqual(sortAccounts(rows,'ready').map(a=>a.id),['A','B']);assert.deepEqual(sortAccounts(rows,'attention').map(a=>a.id),['B','A']);assert.deepEqual(rows.map(a=>a.id),['B','A']);
+});

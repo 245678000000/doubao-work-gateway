@@ -1,28 +1,13 @@
-# 第三方依赖与素材
+# 第三方来源与素材
 
-## Agent2API
+## 协议与工具
 
-- 项目：https://github.com/aimod-cc/Agent2API
-- 本项目已验证版本：3.4.2。
-- 上游仓库标示为 AGPL-3.0；具体条款以其 LICENSE 为准。
-- 作为本机独立进程，由管理 API 与本面板通信。本仓库没有复制其源码或分发其二进制。
+本项目直接实现豆包工作协议。接口与事件格式参考豆包官网前端资源及 [Agent2Providers](https://github.com/ProvidersPlugin/Agent2Providers)（提交 `3055f416841c1393ec04294a702603fd41e840aa`，其项目声明 AGPL-3.0，上游协议研究参考 [EchoBird](https://github.com/edison7009/EchoBird)）。本版不分发、安装或调用 Agent2API、Magpie 或提供商插件。
 
-## 提供商插件
+浏览器登录通过 [Chrome DevTools Protocol](https://chromedevtools.github.io/devtools-protocol/) 的临时会话，无 npm 第三方运行依赖。
 
-- 发布项目：https://github.com/Agent2Builder/agent2api-providers-releases
-- 本项目已验证版本：3.4.2，需与核心版本及 CPU 架构匹配。
-- 由使用者从上游取得并安装，适用上游说明和条款。本仓库不附带插件二进制或签名材料，也不对其重新授权。
+## 产品图标、截图与社区
 
-## 产品图标与截图
+豆包工作图标和界面截图仅用于识别或展示，品牌权益归各自权利人。本项目不是官方客户端。现有源码与素材未另行选择仓库级复用许可。
 
-`public/doubao-work-avatar.png` 为用户提供的豆包工作图标截图，用于在第三方管理台中识别服务；`docs/screenshots/` 为用户提供的本项目界面截图。豆包名称、头像及相关品牌权益归各自权利人，公开本仓库不表示对这些品牌素材的权利转让，也不表示官方背书。
-
-## 协议参考与社区致谢
-
-浏览器登录桥接参考 Chrome DevTools Protocol 文档，使用本项目自己的最小匿名管道实现，无 npm 第三方运行依赖。
-
-感谢 LINUX DO 社区的讨论与交流。社区名称与链接仅用于致谢，不表示隶属或合作关系。
-
-## 本仓库代码
-
-本次公开发布未另行选择源码许可协议；仓库公开与额外授予代码复用许可是两件事。若需要另行确定代码许可证，可由维护者后续明确。第三方内容始终保留其各自条款。
+感谢 LINUX DO 社区的讨论与分享；不表示官方背书、合作或隶属。

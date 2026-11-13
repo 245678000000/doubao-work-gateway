@@ -1,0 +1,37 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtemp,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {startNative} from '../native/gateway.mjs';
+
+test('独立管理 HTTP：确认备份、预览后导入并核验、节点掩码与批量边界',async t=>{
+ const root=await mkdtemp(join(tmpdir(),'dw-manage-'));let gateway;
+ t.after(async()=>{await gateway?.stop();await rm(root,{recursive:true,force:true});});
+ const row={id:'fixture-a',name:'测试账号',provider:'doubaowork',desktop:false,pluginIdentity:'fixture:A',pluginSecret:{cookieHeader:'sessionid=FIXTURE_ONLY'}};
+ let verifies=0;
+ gateway=await startNative({dir:root,modelPort:0,panelPort:0,timer:false,client:{identity:async()=>{verifies++;return {identity:'verified:a',name:'已核验账号'};},models:async()=>['fixture-model']}});
+ const origin=gateway.panelOrigin;
+ const req=(path,data,headers={})=>fetch(origin+path,{method:data===undefined?'GET':'POST',headers:{'X-Doubao-Panel':'1',...(data===undefined?{}:{Origin:origin,'Content-Type':'application/json'}),...headers},body:data===undefined?undefined:JSON.stringify(data)});
+ assert.equal((await req('/api/backup/export',{ids:[row.id]})).status,400);
+ assert.equal((await req('/api/backup/preview',{version:2,accounts:[row]},{Origin:'https://foreign.test'})).status,403);
+ const preview=await(await req('/api/backup/preview',{version:2,accounts:[row]})).json();
+ assert.equal(preview.total,1);assert(!JSON.stringify(preview).includes('FIXTURE_ONLY'));assert.equal(verifies,0);
+ assert.equal((await req('/api/backup/import',{token:preview.token,duplicates:'skip'})).status,200);
+ assert.equal((await req('/api/backup/import',{token:preview.token,duplicates:'skip'})).status,409);
+ assert.equal((await(await req('/api/snapshot')).json()).accounts[0].state,'needs_login');
+ assert.equal((await req('/api/accounts/verify-import',{id:row.id})).status,200);assert.equal(verifies,1);
+ assert.equal((await(await req('/api/snapshot')).json()).accounts[0].state,'ready');
+ const exported=await req('/api/backup/export',{ids:[row.id],confirmSecrets:true});
+ assert.equal(exported.status,200);assert.equal(exported.headers.get('cache-control'),'no-store');
+ assert.equal((await exported.json()).accounts[0].id,row.id);
+ assert.equal((await req('/api/accounts/batch',{ids:[row.id,'missing'],action:'pause'})).status,404);
+ assert.equal((await(await req('/api/snapshot')).json()).accounts[0].enabled,true);
+ assert.equal((await req('/api/accounts/batch',{ids:[row.id],action:'pause'})).status,200);
+ assert.equal((await(await req('/api/snapshot')).json()).accounts[0].enabled,false);
+ const n=await(await req('/api/nodes/preview',{nodes:[{name:'测试节点',baseUrl:'https://example.test/v1',apiKey:'sk-FIXTURE_KEY'}]})).json();
+ assert(!JSON.stringify(n).includes('sk-FIXTURE_KEY'));assert.equal((await req('/api/nodes/import',{token:n.token})).status,200);
+ assert(!JSON.stringify(await(await req('/api/nodes')).json()).includes('sk-FIXTURE_KEY'));
+ assert.equal((await req('/api/nodes/export',{includeKeys:true})).status,400);
+ assert(!JSON.stringify(await(await req('/api/nodes/export',{})).json()).includes('sk-FIXTURE_KEY'));
+});

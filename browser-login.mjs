@@ -5,22 +5,21 @@ import {join} from 'node:path';
 import {homedir} from 'node:os';
 import {randomUUID,createHash} from 'node:crypto';
 import {once} from 'node:events';
+import {browserCandidates} from './platform.mjs';
+import {ensurePrivateDir,securePrivate} from './private-files.mjs';
 
 const LOGIN_URL='https://www.doubao.com/chat/';
-const ACTIVE=new Set(['starting','waiting','importing']);
+const ACTIVE=new Set(['starting','waiting','awaiting_confirmation','importing']);
 const failure=(status,message)=>Object.assign(new Error(message),{status});
 const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 
 // Discover executable locations only. Never inspect the user's regular browser profile.
-export async function availableBrowsers(platform=process.platform,home=homedir()) {
-  if(platform!=='darwin')return [];
-  const choices=[['chrome','Google Chrome','Google Chrome.app','Google Chrome'],['edge','Microsoft Edge','Microsoft Edge.app','Microsoft Edge']];
+export async function availableBrowsers(platform=process.platform,home=homedir(),env=process.env) {
+  if(platform==='linux'&&(!env.DISPLAY&&!env.WAYLAND_DISPLAY))return [];
   const result=[];
-  for(const [id,name,app,bin] of choices){
-    for(const apps of ['/Applications',join(home,'Applications')]){
-      const path=join(apps,app,'Contents/MacOS',bin);
-      if(await access(path,constants.X_OK).then(()=>true,()=>false)){result.push({id,name,path});break;}
-    }
+  for(const browser of browserCandidates(platform,home,env)){
+    if(result.some(b=>b.id===browser.id))continue;
+    if(await access(browser.path,platform==='win32'?constants.F_OK:constants.X_OK).then(()=>true,()=>false))result.push(browser);
   }
   return result;
 }
@@ -100,7 +99,7 @@ export async function launchIsolatedBrowser(browser,profile,{spawnProcess=spawn}
   try{
     await Promise.race([once(child,'spawn'),exit.then(()=>{throw Error('浏览器启动失败。');})]);
     await client.send('Browser.getVersion');
-  }catch{await dispose();throw failure(503,'浏览器启动失败，请检查 Chrome / Edge 安装，或使用备用窗口。');}
+  }catch{await dispose();throw failure(503,'浏览器启动失败，请检查 Chrome / Edge 安装，或在工作台导入账号 JSON。');}
   return {
     async cookies(){
       const {targetInfos=[]}=await client.send('Target.getTargets');
@@ -129,12 +128,12 @@ export class BrowserLogin {
   status(){return {...this.state,active:ACTIVE.has(this.state.state)||this.current!==null};}
   async options(){return (await this.discover()).map(({id,name})=>({id,name}));}
   update(session,state,message,extra={}){if(this.current===session)this.state={...this.state,state,message,...extra};}
-  async start(browserId){
+  async start(browserId,context={}){
     if(this.disposed)throw failure(503,'登录服务正在停止。');
-    if(this.current)return this.status();
-    const session={id:randomUUID(),cancelled:false,timer:null,handle:null,profile:null,finishing:null,busy:false,stable:'',ready:null};
+    if(this.current){if((this.current.context.destination||'local')!==(context.destination||'local')||this.current.context.expectedId!==context.expectedId||!!this.current.context.manual!==!!context.manual)throw failure(409,'已有另一种保存目标的登录会话，请先完成或取消它。');return this.status();}
+    const session={context,id:randomUUID(),cancelled:false,timer:null,handle:null,profile:null,finishing:null,busy:false,stable:'',ready:null};
     this.current=session;const startedAt=this.now();
-    this.state={id:session.id,state:'starting',message:'正在准备独立浏览器会话…',browserName:'',startedAt,expiresAt:startedAt+this.ttlMs};
+    this.state={id:session.id,destination:context.destination||'local',state:'starting',message:'正在准备独立浏览器会话…',browserName:'',startedAt,expiresAt:startedAt+this.ttlMs};
     session.ready=this.prepare(session,browserId);
     await session.ready;
     return this.status();
@@ -143,18 +142,18 @@ export class BrowserLogin {
     try{
       const browsers=await this.discover();
       const browser=browserId===undefined?browsers[0]:browsers.find(b=>b.id===browserId);
-      if(!browser)throw failure(409,'未找到所选浏览器。请安装 Chrome / Edge，或使用备用独立窗口。');
+      if(!browser)throw failure(409,'未找到所选浏览器。请安装 Chrome / Edge，或在工作台导入账号 JSON。');
       if(session.cancelled)return;
       this.state.browserName=browser.name;
-      await mkdir(this.tmpRoot,{recursive:true,mode:0o700});
-      session.profile=await mkdtemp(join(this.tmpRoot,'doubao-login-'));await chmod(session.profile,0o700);
+      await ensurePrivateDir(this.tmpRoot);
+      session.profile=await mkdtemp(join(this.tmpRoot,'doubao-login-'));await securePrivate(session.profile,{directory:true});
       if(session.cancelled)return;
       session.handle=await this.launch(browser,session.profile);
       if(session.cancelled)return;
       this.update(session,'waiting','请在新打开的 '+browser.name+' 窗口登录豆包。完成后会自动接入，无需复制 Cookie。');
       this.schedule(session);
     }catch(error){
-      this.update(session,'error',error.status?error.message:'浏览器登录启动失败，请重试或使用备用窗口。');
+      this.update(session,'error',error.status?error.message:'浏览器登录启动失败，请检查浏览器与图形桌面环境。');
       await this.finish(session);
     }finally{
       if(session.cancelled)await this.finish(session);
@@ -174,14 +173,18 @@ export class BrowserLogin {
       if(!cookies.length){session.stable='';this.schedule(session);return;}
       const fingerprint=createHash('sha256').update(cookies.filter(c=>['sessionid','sessionid_ss'].includes(c.name)).map(c=>c.name+'='+c.value).sort().join(';')).digest('hex');
       if(fingerprint!==session.stable){session.stable=fingerprint;this.schedule(session);return;}
+      if(session.context.manual&&session.confirmed!==fingerprint){
+        this.update(session,'awaiting_confirmation','已检测到登录。请在窗口里完成官网验证，再回到面板确认接入。');
+        this.schedule(session);return;
+      }
       this.update(session,'importing','检测到豆包登录，正在核验账号并保存到本机…');
       // Exactly one import attempt. A timeout is uncertain, not a reason to retry silently.
       let result;
-      try{result=await this.importAccount(cookies);}catch{
-        this.update(session,'error','账号接入结果待核对。请先刷新账号列表；确认未接入后，再重新登录。');await this.finish(session);return;
+      try{result=await this.importAccount(cookies,session.context);}catch{
+        this.update(session,'error',session.context.destination==='cloud'?'账号接入或同步结果待核对。请先检查本机和云端列表；确认结果后再操作。':'账号接入结果待核对。请先刷新账号列表；确认未接入后，再重新登录。');await this.finish(session);return;
       }
       if(!result||typeof result.name!=='string'||typeof result.updated!=='boolean')throw Error('账号核验结果异常。');
-      this.update(session,'success',result.updated?'已更新这个账号的登录状态；账号总数保持不变。':'新账号已接入，账号列表会自动刷新。',{accountName:result.name.slice(0,64),updated:result.updated});
+      this.update(session,'success',result.cloudSynced?'登录已完成，账号已自动接入云端。':result.updated?'已更新这个账号的登录状态；账号总数保持不变。':'新账号已接入，账号列表会自动刷新。',{accountName:result.name.slice(0,64),updated:result.updated,cloudSynced:result.cloudSynced===true,cloudOrigin:result.cloudOrigin||''});
       await this.finish(session);
     }catch{
       this.update(session,'error','浏览器会话已断开，请重新打开登录。已有账号不受影响。');await this.finish(session);
@@ -198,6 +201,13 @@ export class BrowserLogin {
       if(this.current===session)this.current=null;
     })();
     return session.finishing;
+  }
+  async confirm(id){
+    const session=this.current;
+    if(!session||id!==session.id||!session.context.manual||this.state.state!=='awaiting_confirmation'||!session.stable)
+      throw failure(409,'没有可确认的浏览器登录。');
+    session.confirmed=session.stable;if(session.busy)return this.status();clearTimeout(session.timer);
+    await this.inspect(session);return this.status();
   }
   async cancel({shutdown=false}={}){
     const session=this.current;if(!session)return this.status();
