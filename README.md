@@ -1,7 +1,9 @@
 <p align="center"><img src="public/doubao-work-avatar.png" width="72" alt="豆包工作头像" /></p>
 <h1 align="center">豆包工作 · 账号管家</h1>
 <p align="center">只做豆包工作：多账号、每日签到、JSON 备份和 OpenAI 兼容接口。</p>
-<p align="center"><strong>Windows / macOS / Linux</strong> · <strong>Node.js 22+</strong> · <strong>浅色 / 深色</strong></p>
+<p align="center"><strong>Windows / macOS / Linux</strong> · <strong>Node.js 22+</strong> · <strong>零 npm 运行依赖</strong></p>
+
+<p align="center"><a href="#快速开始">快速开始</a> · <a href="#接入客户端">接入客户端</a> · <a href="#原账号迁移">账号迁移</a> · <a href="#遇到-429--710022004">429 排查</a></p>
 
 > 独立第三方项目，非豆包官方产品。原生版在同一个 Node 进程中运行管理面板与模型 API，无 Agent2API、Magpie、提供商插件或 npm 运行依赖。
 
@@ -24,17 +26,39 @@
 
 ## 快速开始
 
-安装 Node.js 22 或更高版本，取得本仓库源码，在项目目录运行：
+需要 **Node.js 22 或更高版本**。使用浏览器登录时，还需要 Chrome 或 Edge；带图形桌面的 Linux 也可使用 Chromium。安装 Git 后，执行：
 
 ```sh
+git clone https://github.com/245678000000/doubao-work-gateway.git
+cd doubao-work-gateway
 npm start
 ```
 
-1. 打开 [本机面板](http://127.0.0.1:43862)，选择「添加账号」，在独立浏览器登录。
-2. 身份核验后，在「接口接入」查看模型、复制默认 Key 或创建独立客户端 Key。客户端 Base URL 默认是 `http://127.0.0.1:43861/v1`。
-3. 使用 `npm stop` 或 Ctrl+C 停止；账号资料保留。用 `npm run status` 查看是否运行，`npm run doctor` 检查平台与浏览器。
+无需执行 `npm install`。也可从 GitHub 下载源码 ZIP，解压后在项目目录执行 `npm start`。
 
-也可运行 Windows 的 `start.cmd`、macOS 的 `start.command` 或 Linux 的 `start.sh`。浏览器登录需要图形桌面；服务器可从本机导出账号 JSON 后导入。见[跨平台说明](docs/platforms.md)。
+1. 打开 [本机面板](http://127.0.0.1:43862)，在工作台点击「添加账号」，在弹出的独立浏览器窗口登录豆包。
+2. 登录后在工作台核对账号状态；添加下一个账号时会开启新的临时会话。
+3. 如需每日签到，在「自动签到」中设置北京时间、勾选账号，并保存计划。执行时网关需保持运行。
+
+| 系统 | 启动 | 停止 |
+| --- | --- | --- |
+| Windows | `start.cmd` 或 `npm start` | `stop.cmd` 或 `npm stop` |
+| macOS | `./start.command` 或 `npm start` | `./stop.command` 或 `npm stop` |
+| Linux | `./start.sh` 或 `npm start` | `./stop.sh` 或 `npm stop` |
+
+也可在启动终端按 Ctrl+C 停止，账号资料会保留。`npm run status` 查看运行状态；`npm run doctor` 检查 Node、运行目录及浏览器。无图形桌面的服务器可用账号 JSON 迁移，见[跨平台说明](docs/platforms.md)。
+
+## 接入客户端
+
+登录并核验账号后，打开面板的「接口接入」，按下表填写 OpenAI 兼容客户端：
+
+| 客户端字段 | 填写内容 |
+| --- | --- |
+| Base URL | `http://127.0.0.1:43861/v1`（默认本机模型端口） |
+| API Key | 面板里的默认 Key，或专为该客户端创建的 Key |
+| 模型 ID | 从「接口接入」的实际模型列表复制 |
+
+`43862` 是管理端口，`43861` 是模型端口，别把面板地址填进客户端。模型列表接口为 `GET /v1/models`，文本请求使用 `POST /v1/chat/completions`。面板也提供可复制的调用示例。
 
 ## 原账号迁移
 
@@ -58,12 +82,12 @@ npm start
 
 账号会话与管理台签发的 Key 在本机用 AES-256-GCM 保存。密钥文件与加密数据均需保留。下载的账号 JSON 是可读的敏感备份；节点 JSON 默认不含 Key。请勿上传备份、状态目录、浏览器资料、Cookie 或管理员凭据。
 
-云端模式需要 HTTPS、管理员认证和专用代理凭据；请看[部署说明](docs/cloud/README.md)。此分支的源码更新不会修改既有服务器。
+云端模式需要 HTTPS、管理员认证和专用代理凭据；请看[部署说明](docs/cloud/README.md)。从 GitHub 下载或更新源码不会自动部署服务器。
 
 ## 验证与文档
 
 - `npm run check`：源文件语法检查；`npm test`：本地模拟上游、加密库、双端口、导入导出、流式输出和暂停恢复。
-- Windows / macOS / Linux 的执行结果见 [GitHub Actions](https://github.com/245678000000/doubao-work-gateway/actions)。跨平台自动测试与真实账号登录、模型和签到是不同验收项。
+- [Windows、macOS、Linux × Node.js 22 / 24 的 6 个 CI 任务已通过](https://github.com/245678000000/doubao-work-gateway/actions/runs/43378348745)。真实浏览器登录、模型调用和签到需单独验收，详见[验收记录](docs/validation-native.md)。
 - [JSON 导入导出](docs/json-transfer.md) · [原生协议](docs/native-protocol.md) · [安全与反馈](SECURITY.md) · [第三方声明](THIRD_PARTY_NOTICES.md)
 
 ## 致谢
