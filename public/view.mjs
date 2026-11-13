@@ -26,3 +26,5 @@ export function curlExample(base, model) {
   const body=JSON.stringify({model,messages:[{role:'user',content:'请只回复 OK'}],stream:true});
   return `curl --no-buffer ${quote(base+'/chat/completions')} \\\n  -H "Authorization: Bearer $DOUBAO_API_KEY" \\\n  -H 'Content-Type: application/json' \\\n  -d ${quote(body)}`;
 }
+
+export function sortAccounts(accounts,order='default'){const list=[...accounts];if(order==='name')list.sort((a,b)=>a.name.localeCompare(b.name,'zh-CN'));else if(order==='ready')list.sort((a,b)=>Number(isReady(b))-Number(isReady(a)));else if(order==='attention')list.sort((a,b)=>Number(needsAttention(b))-Number(needsAttention(a)));return list;}

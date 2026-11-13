@@ -6,6 +6,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {BrowserLogin,PipeClient,doubaoCookies,isDoubaoPage,browserArgs,availableBrowsers} from '../browser-login.mjs';
 const cookie={name:'sessionid',value:'FIXTURE_SESSION',domain:'.doubao.com',path:'/',expires:-1};
+import {assertPrivate} from '../private-files.mjs';
 const options=[{id:'chrome',name:'Google Chrome',path:'/fixture/chrome'}];
 const deferred=()=>{let resolve;const promise=new Promise(r=>resolve=r);return {promise,resolve};};
 async function setup(overrides={}){
@@ -46,7 +47,7 @@ test('畸形和超大管道消息关闭连接且不展示载荷',async()=>{
 test('浏览器登录单实例；稳定会话只接入一次；清理临时资料',async()=>{
  const f=await setup();try{
   const [a,b]=await Promise.all([f.login.start('chrome'),f.login.start('chrome')]);assert.equal(a.id,b.id);
-  assert.equal((await stat(f.profile)).mode&0o777,0o700);assert.equal(f.login.status().state,'waiting');
+  await assertPrivate(f.profile,{directory:true});if(process.platform!=='win32')assert.equal((await stat(f.profile)).mode&0o777,0o700);assert.equal(f.login.status().state,'waiting');
   f.setCookies([cookie]);await f.inspect();assert.equal(f.imports,0);await f.inspect();assert.equal(f.imports,1);
   assert.equal(f.login.status().state,'success');assert.equal(f.login.status().active,false);assert.equal(f.closes,1);assert(!JSON.stringify(f.login.status()).includes(cookie.value));
   assert.deepEqual(await readdir(f.root),[]);await f.inspect();assert.equal(f.imports,1);
@@ -73,10 +74,10 @@ test('导入结果不确定时停止、不重复提交、不回显凭据',async(
  }finally{await f.done();}
 });
 test('启动中取消会等待资源就绪再清理；核验时避免误取消',async()=>{
- const gate=deferred();let closes=0;
- const f=await setup({launch:async()=>{await gate.promise;return {cookies:async()=>[],dispose:async()=>{closes++;}};}});
+ const gate=deferred(),began=deferred();let closes=0;
+ const f=await setup({launch:async()=>{began.resolve();await gate.promise;return {cookies:async()=>[],dispose:async()=>{closes++;}};}});
  try{
-  const start=f.login.start();await new Promise(r=>setTimeout(r,30));const cancel=f.login.cancel();gate.resolve();await Promise.all([start,cancel]);assert.equal(f.login.status().state,'cancelled');assert.equal(closes,1);assert.deepEqual(await readdir(f.root),[]);
+  const start=f.login.start();await began.promise;const cancel=f.login.cancel();gate.resolve();await Promise.all([start,cancel]);assert.equal(f.login.status().state,'cancelled');assert.equal(closes,1);assert.deepEqual(await readdir(f.root),[]);
  }finally{await f.done();}
  const importGate=deferred(),g=await setup({importAccount:async()=>{await importGate.promise;return {name:'甲',updated:false};}});
  try{
@@ -89,4 +90,13 @@ test('未安装浏览器、非法选择、启动失败都有明确结果',async(
   const f=await setup(settings);try{await f.login.start();assert.equal(f.login.status().state,'error');assert(!JSON.stringify(f.login.status()).includes('SENSITIVE'));assert.deepEqual(await readdir(f.root),[]);}finally{await f.done();}
  }
  const f=await setup();try{await f.login.start('/arbitrary/executable');assert.equal(f.login.status().state,'error');assert.deepEqual(await readdir(f.root),[]);}finally{await f.done();}
+});
+test('云端登录上下文传入接入回调，成功状态与失败状态均脱敏',async()=>{
+ let calls=0;const f=await setup({importAccount:async(_cookies,context)=>{calls++;assert.deepEqual(context,{destination:'cloud'});return {name:'测试账号',updated:false,cloudSynced:true,cloudOrigin:'https://cloud.example.test'};}});
+ try{await f.login.start('chrome',{destination:'cloud'});f.setCookies([cookie]);await f.inspect();await f.inspect();assert.equal(calls,1);assert.equal(f.login.status().cloudSynced,true);assert.match(f.login.status().message,/自动接入云端/);}finally{await f.done();}
+ const g=await setup({importAccount:async()=>{throw Error('FIXTURE_PRIVATE_COOKIE');}});
+ try{await g.login.start('chrome',{destination:'cloud'});g.setCookies([cookie]);await g.inspect();await g.inspect();assert.equal(g.login.status().state,'error');assert.match(g.login.status().message,/待核对/);assert(!JSON.stringify(g.login.status()).includes('FIXTURE_PRIVATE_COOKIE'));}finally{await g.done();}
+});
+test('进行中的浏览器会话固定保存目标，跨目标启动会明确提示',async()=>{
+ const f=await setup();try{await f.login.start('chrome',{destination:'local'});assert.equal(f.login.status().destination,'local');await assert.rejects(f.login.start('chrome',{destination:'cloud'}),e=>e.status===409);assert.equal(f.login.status().destination,'local');}finally{await f.done();}
 });

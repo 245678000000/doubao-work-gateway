@@ -1,4 +1,5 @@
 import {randomUUID, timingSafeEqual} from 'node:crypto';
+import {securePrivate} from './private-files.mjs';
 import {open, rename, readFile, unlink} from 'node:fs/promises';
 
 export const PROVIDER = 'doubaowork';
@@ -65,7 +66,7 @@ export async function readSettings(path) {
 export async function atomic(path,value) {
   const temp=path+'.'+randomUUID()+'.tmp';
   const file=await open(temp,'wx',0o600);
-  try { await file.writeFile(JSON.stringify(value,null,2)+'\n'); await file.sync(); }
+  try { await securePrivate(temp); await file.writeFile(JSON.stringify(value,null,2)+'\n'); await file.sync(); }
   catch(error){ await file.close(); await unlink(temp).catch(()=>{}); throw error; }
   await file.close();
   try { await rename(temp,path); } catch(error){ await unlink(temp).catch(()=>{}); throw error; }

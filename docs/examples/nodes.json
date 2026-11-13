@@ -1,0 +1,11 @@
+{
+  "schema": "doubao-work-nodes/v1",
+  "version": 1,
+  "nodes": [
+    {
+      "name": "豆包工作接入示例",
+      "baseUrl": "https://example.com/v1",
+      "models": ["MODEL_ID"]
+    }
+  ]
+}

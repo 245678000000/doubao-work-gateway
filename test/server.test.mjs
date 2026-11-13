@@ -1,10 +1,11 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {createServer} from 'node:http';
+import {createServer,request as httpRequest} from 'node:http';
 import {once} from 'node:events';
 import {mkdtemp,writeFile,rm} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
+import {securePrivate} from '../private-files.mjs';
 import {createPanel} from '../server.mjs';
 import {readSettings,dayTime} from '../core.mjs';
 
@@ -149,5 +150,77 @@ test('Key 管理 HTTP 路由：来源校验、固定范围、按需复制与默�
   assert.equal((await request('/api/keys/update',{id:'base',enabled:false})).status,409);
   assert.equal((await request('/api/keys/create',{...payload,allowedProviders:[]})).status,400);
   assert.equal((await request('/api/keys/reveal',{id:'missing'})).status,404);
+ }finally{await panel.dispose();await close(panel.server);await close(mock);await rm(root,{recursive:true,force:true});}
+});
+
+test('云端入口：专用代理凭据、HTTPS 来源校验、固定 API 地址与账号迁入脱敏',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'dw-cloud-')),admin='dw-admin-'+'7'.repeat(64),key='sk-local-'+'8'.repeat(48);
+ await writeFile(join(root,'panel-management.key'),admin);await writeFile(join(root,'probe-model.key'),key);
+ let imports=0;
+ const mock=createServer(async(req,res)=>{
+  let data;
+  if(req.url==='/api/accounts/import'){
+   assert.equal(req.headers.authorization,'Bearer '+admin);let text='';for await(const c of req)text+=c;const value=JSON.parse(text);assert.equal(value.accounts[0].provider,'doubaowork');imports++;
+   data={total:1,added:1,updated:0,skipped:0,failed:0,errors:['SENSITIVE_IMPORT_DETAILS'],accounts:value.accounts};
+  }else if(req.url==='/api/accounts')data={accounts:[]};
+  else if(req.url==='/v1/models')data={data:[]};
+  else if(req.url==='/api/plugins')data={packs:[{enabled:true,host:{running:true},providers:[{id:'doubaowork',enabled:true,loaded:true}]}]};
+  else if(req.url==='/api/accounts/usage/snapshot')data={results:[]};
+  else if(req.url.startsWith('/api/checkin-records'))data={records:[]};
+  else{res.writeHead(404);return res.end();}
+  res.setHeader('Content-Type','application/json');res.end(JSON.stringify(req.url==='/v1/models'?data:{success:true,data}));
+ });
+ const upstreamPort=await makePort(mock),probe=createServer(),port=await makePort(probe);await close(probe);
+ const publicOrigin='https://cloud.example.test:13443',proxyToken='fixture-proxy-'+'x'.repeat(48);
+ const panel=await createPanel({dir:root,upstreamPort,port,timer:false,publicOrigin,proxyToken});panel.server.listen(port,'127.0.0.1');await once(panel.server,'listening');
+ const request=(path,data,extra={})=>new Promise((resolve,reject)=>{
+  const payload=data===undefined?undefined:JSON.stringify(data);
+  const req=httpRequest({hostname:'127.0.0.1',port,path,method:data===undefined?'GET':'POST',headers:{Host:'cloud.example.test:13443','X-Doubao-Proxy-Token':proxyToken,'X-Doubao-Panel':'1',...(data===undefined?{}:{Origin:publicOrigin,'Content-Type':'application/json','Content-Length':Buffer.byteLength(payload)}),...extra}},res=>{
+   const chunks=[];res.on('data',c=>chunks.push(c));res.on('end',()=>resolve({status:res.statusCode,json:async()=>JSON.parse(Buffer.concat(chunks).toString())}));
+  });req.on('error',reject);req.end(payload);
+ });
+ try{
+  assert.equal((await fetch('http://127.0.0.1:'+port+'/')).status,403);
+  assert.equal((await request('/api/snapshot',undefined,{'X-Doubao-Proxy-Token':'bad'})).status,403);
+  const snapshot=await(await request('/api/snapshot')).json();assert.equal(snapshot.apiBase,publicOrigin+'/v1');assert.equal(snapshot.deployment,'cloud');
+  const login=await(await request('/api/login-status')).json();assert.equal(login.mode,'cloud');assert.deepEqual(login.browsers,[]);assert.equal(login.nativeAvailable,false);
+  assert.equal((await request('/api/login',{})).status,409);
+  assert.equal((await request('/api/cloud-sync',{})).status,404);
+  const payload={accounts:[{id:'fixture-id',provider:'doubaowork',pluginSecret:{cookies:'SENSITIVE_COOKIE'}}]};
+  assert.equal((await request('/api/accounts/import',payload,{Origin:'https://foreign.example'})).status,403);assert.equal(imports,0);
+  assert.equal((await request('/api/accounts/import',{accounts:[{provider:'other'}]})).status,400);
+  const result=await(await request('/api/accounts/import',payload)).json();assert.deepEqual(result,{total:1,added:1,updated:0,skipped:0,failed:0});assert(!JSON.stringify(result).includes('SENSITIVE'));assert.equal(imports,1);
+ }finally{await panel.dispose();await close(panel.server);await close(mock);await rm(root,{recursive:true,force:true});}
+});
+
+test('本机登录到云端：自动单账号同步、手动同步与来源隔离',async()=>{
+ const {mkdir}=await import('node:fs/promises'),root=await mkdtemp(join(tmpdir(),'dw-cloud-login-')),dir=join(root,'state');await mkdir(dir);
+ await writeFile(join(dir,'panel-management.key'),'dw-admin-'+'9'.repeat(64));await writeFile(join(dir,'probe-model.key'),'sk-local-'+'a'.repeat(48));
+ const cloudConfigPath=join(root,'cloud.json'),cloudOrigin='https://cloud.example.test:13443';await writeFile(cloudConfigPath,JSON.stringify({origin:cloudOrigin,user:'admin',password:'FIXTURE_CLOUD_PASSWORD'}),{mode:0o600});await securePrivate(cloudConfigPath);
+ const rows=[{id:'EXISTING',name:'原账号',provider:'doubaowork',hasCredentials:true}];let cloudPosts=0;
+ const mock=createServer(async(req,res)=>{
+  let data;
+  if(req.url==='/api/accounts'&&req.method==='POST'){for await(const _c of req){};if(rows.length===1)rows.push({id:'NEW',name:'新账号',provider:'doubaowork',hasCredentials:true});data={account:{id:'NEW'}};}
+  else if(req.url==='/api/accounts')data={accounts:rows};
+  else if(req.url==='/api/accounts/export')data={accounts:rows.map(a=>({...a,pluginSecret:{cookies:'FIXTURE_SESSION'}}))};
+  else{res.writeHead(404);return res.end();}
+  res.setHeader('Content-Type','application/json');res.end(JSON.stringify({success:true,data}));
+ });
+ const upstreamPort=await makePort(mock),probe=createServer(),port=await makePort(probe);await close(probe);
+ const panel=await createPanel({dir,upstreamPort,port,timer:false,cloudConfigPath,cloudFetch:async(url,o)=>{
+  cloudPosts++;assert.equal(url,cloudOrigin+'/api/accounts/import');const accounts=JSON.parse(o.body).accounts;
+  assert.deepEqual(accounts.map(a=>a.id),cloudPosts===1?['NEW']:['EXISTING','NEW']);
+  return {ok:true,json:async()=>({added:0,updated:accounts.length,skipped:0,failed:0})};
+ },browserLoginOptions:{pollMs:10,discover:async()=>[{id:'chrome',name:'Chrome',path:'/FIXTURE_BROWSER'}],launch:async()=>({cookies:async()=>[{name:'sessionid',value:'FIXTURE_SESSION',domain:'.doubao.com',path:'/'}],dispose:async()=>{}})}});
+ panel.server.listen(port,'127.0.0.1');await once(panel.server,'listening');const origin='http://127.0.0.1:'+port;
+ const request=(path,data,headers={})=>fetch(origin+path,{method:data===undefined?'GET':'POST',headers:{'X-Doubao-Panel':'1',...(data===undefined?{}:{Origin:origin,'Content-Type':'application/json'}),...headers},body:data===undefined?undefined:JSON.stringify(data)});
+ try{
+  assert.equal((await request('/api/cloud-sync',{}, {Origin:'https://foreign.example'})).status,403);assert.equal(cloudPosts,0);
+  assert.equal((await request('/api/login',{destination:'arbitrary'})).status,400);
+  const initial=await(await request('/api/login-status')).json();assert.deepEqual(initial.cloud,{configured:true,origin:cloudOrigin});assert(!JSON.stringify(initial).includes('FIXTURE_CLOUD_PASSWORD'));
+  assert.equal((await request('/api/login',{destination:'cloud',browserId:'chrome'})).status,200);
+  let status;for(let i=0;i<60;i++){status=await(await request('/api/login-status')).json();if(!status.active)break;await new Promise(r=>setTimeout(r,10));}
+  assert.equal(status.state,'success');assert.equal(status.cloudSynced,true);assert.equal(status.cloudOrigin,cloudOrigin);assert.equal(cloudPosts,1);assert(!JSON.stringify(status).includes('FIXTURE_SESSION'));
+  const synced=await(await request('/api/cloud-sync',{})).json();assert.equal(synced.updated,2);assert.equal(cloudPosts,2);
  }finally{await panel.dispose();await close(panel.server);await close(mock);await rm(root,{recursive:true,force:true});}
 });
